@@ -20,7 +20,7 @@ requires-python = ">=3.10"
 dependencies = [
     "torch",
     "scipy",
-    "numpy",
+    "numpy<2",
     "matplotlib",
     "hydra-core",
     "omegaconf",

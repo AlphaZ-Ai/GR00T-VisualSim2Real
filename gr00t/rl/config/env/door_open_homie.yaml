@@ -151,7 +151,7 @@ env:
       normalization: batch_norm
     reset_from_dataset:
       use_motion_file_dir: True
-      motion_file_dir: ${oc.env:HOME}/projects/LAFAN-G1
+      motion_file_dir: ${oc.env:HOME}/alphaz_ws/DoorOpening/LAFAN-G1
       motion_files: []
       device: ""
       num_per_sample: 10
