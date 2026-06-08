@@ -106,8 +106,8 @@ class DoorPregrasp(
             self.door_open_lr[env_id] = door_metadata["doorOpenLR"]
 
         # body indices
-        self.left_palm_idx = self.simulator.body_names.index("left_hand_palm_link")
-        self.right_palm_idx = self.simulator.body_names.index("right_hand_palm_link")
+        self.left_palm_idx = self.simulator.body_names.index(self.simulator.robot_config.left_hand_palm_link)
+        self.right_palm_idx = self.simulator.body_names.index(self.simulator.robot_config.right_hand_palm_link)
         self.root_idx = self.simulator.body_names.index("pelvis")
         self.left_hand_indices = [
             self.simulator.body_names.index(link)
@@ -117,20 +117,21 @@ class DoorPregrasp(
             self.simulator.body_names.index(link)
             for link in self.simulator.robot_config.right_hand_body_names
         ]
-        g1_hand_links = [
-            n
-            for n in self.simulator.robot_config.body_names
-            if ("left_hand" in n or "right_hand" in n)
-        ]
+        g1_hand_links = (
+            list(self.simulator.robot_config.left_hand_body_names)
+            + list(self.simulator.robot_config.right_hand_body_names)
+        )
         self.left_hand_indices_tgt_ct_sensor = [
-            g1_hand_links.index(link) for link in g1_hand_links if "left_hand" in link
+            g1_hand_links.index(link)
+            for link in self.simulator.robot_config.left_hand_body_names
         ]
         self.left_hand_indices_convert = [
             self.left_hand_indices.index(self.simulator.body_names.index(g1_hand_links[i]))
             for i in self.left_hand_indices_tgt_ct_sensor
         ]
         self.right_hand_indices_tgt_ct_sensor = [
-            g1_hand_links.index(link) for link in g1_hand_links if "right_hand" in link
+            g1_hand_links.index(link)
+            for link in self.simulator.robot_config.right_hand_body_names
         ]
         self.right_hand_indices_convert = [
             self.right_hand_indices.index(self.simulator.body_names.index(g1_hand_links[i]))
@@ -145,7 +146,10 @@ class DoorPregrasp(
         )
 
         # dof indices
-        finger_dof_names = [dof for dof in self.simulator.dof_names if "hand" in dof]
+        finger_dof_names = (
+            list(self.simulator.robot_config.left_hand_dof_names)
+            + list(self.simulator.robot_config.right_hand_dof_names)
+        )
         self.finger_dof_idx = torch.tensor(
             [self.simulator.dof_names.index(dof) for dof in finger_dof_names],
             dtype=torch.long,
