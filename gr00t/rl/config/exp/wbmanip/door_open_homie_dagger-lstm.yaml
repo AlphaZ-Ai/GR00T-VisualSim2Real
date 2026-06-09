@@ -6,7 +6,7 @@ defaults:
   - /simulator: isaacsim
   - /domain_rand: domain_rand_visual_ImageRand
   - /rewards: wbmanip/reward_door_open_homie
-  - /robot: g1/g1_43dof
+  - /robot: g1/g1_33dof
   - /terrain: terrain_locomotion_plane
   - /obs: wbmanip/door_open_homie_dagger
   - /opt: wandb
@@ -153,27 +153,31 @@ robot:
   finger_primitive:
     primitive_action_map:
       left:
-        pos_0: [
-          -1.0472, -1.0472, 0.0,
-          -0.523599, -0.523599, -0.523599,
-          0.523599
-        ]
-        pos_1: [
-          -1.5708, -1.5708, 0.0,
-          -1.5708, -1.5708, 0.785398,
-          1.5708
-        ]
+        # pos_0: [
+        #   -1.0472, -1.0472, 0.0,
+        #   -0.523599, -0.523599, -0.523599,
+        #   0.523599
+        # ]
+        # pos_1: [
+        #   -1.5708, -1.5708, 0.0,
+        #   -1.5708, -1.5708, 0.785398,
+        #   1.5708
+        # ]
+        pos_0: [-0.02, -0.02]
+        pos_1: [0.0245, 0.0245]
       right:
-        pos_0: [
-          1.0472, 1.0472, 0.0,
-          0.523599, 0.523599, 0.523599,
-          -0.523599
-        ]
-        pos_1: [
-          1.5708, 1.5708, 0.0,
-          1.5708, 1.5708, -0.785398,
-          -1.5708
-        ]
+        # pos_0: [
+        #   1.0472, 1.0472, 0.0,
+        #   0.523599, 0.523599, 0.523599,
+        #   -0.523599
+        # ]
+        # pos_1: [
+        #   1.5708, 1.5708, 0.0,
+        #   1.5708, 1.5708, -0.785398,
+        #   -1.5708
+        # ]
+        pos_0: [-0.02, -0.02]
+        pos_1: [0.0245, 0.0245]
   use_primitive: True
   actions_dim: 31
   check_action_dim: False

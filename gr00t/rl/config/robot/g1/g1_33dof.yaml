@@ -333,9 +333,9 @@ robot:
     linear_damping: 0.01
 
     urdf_file: "g1/${robot.asset.robot_type}.urdf"
-    usd_file: "g1/${robot.asset.robot_type}_s3.usda"
+    usd_file: "g1/${robot.asset.robot_type}.usda"
     xml_file: "g1/${robot.asset.robot_type}.xml"
-    robot_type: g1_33dof_dex1
+    robot_type: g1_33dof
     self_collisions: 1 # 1 to disable, 0 to enable self collisions
     default_dof_drive_mode: 3
 

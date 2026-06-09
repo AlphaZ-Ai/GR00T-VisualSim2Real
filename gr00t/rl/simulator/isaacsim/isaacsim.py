@@ -532,7 +532,7 @@ class IsaacSim(BaseSimulator):
 
         self.torso_index = self._robot.find_bodies("torso_link", preserve_order=True)[0][0]
         self.right_palm_index = self._robot.find_bodies(
-            "right_hand_palm_link", preserve_order=True
+            "right_dex1_base_link", preserve_order=True
         )[0][0]
 
         # if self.domain_rand_config.get("randomize_object_material", False):
@@ -841,19 +841,19 @@ class IsaacSim(BaseSimulator):
                 g1_hand_links = [
                     "/World/envs/env_.*/Robot/{}".format(n)
                     for n in self.robot_config.body_names
-                    if "right_hand" in n
+                    if "right_dex1" in n
                 ]
             elif which_hand == "left_hand":
                 g1_hand_links = [
                     "/World/envs/env_.*/Robot/{}".format(n)
                     for n in self.robot_config.body_names
-                    if "left_hand" in n
+                    if "left_dex1" in n
                 ]
             elif which_hand == "any_hand":
                 g1_hand_links = [
                     "/World/envs/env_.*/Robot/{}".format(n)
                     for n in self.robot_config.body_names
-                    if ("left_hand" in n or "right_hand" in n)
+                    if ("left_dex1" in n or "right_dex1" in n)
                 ]
             else:
                 raise ValueError(f"Invalid which_hand: {which_hand}")
@@ -887,12 +887,12 @@ class IsaacSim(BaseSimulator):
             g1_right_hand_links = [
                 "/World/envs/env_.*/Robot/{}".format(n)
                 for n in self.robot_config.body_names
-                if ("right_hand" in n)
+                if ("right_dex1" in n)
             ]
             g1_left_hand_links = [
                 "/World/envs/env_.*/Robot/{}".format(n)
                 for n in self.robot_config.body_names
-                if ("left_hand" in n)
+                if ("left_dex1" in n)
             ]
             if which_hand == "right_hand":
                 g1_hold_hand_links = g1_right_hand_links
@@ -1249,13 +1249,13 @@ class IsaacSim(BaseSimulator):
                     target_obj_transform_prim_path = os.path.join(target_obj_transform_prim_path, self.task_config.target_obj_transform_sub_prim_path)
 
                 left_hand_frame_transformer_config = FrameTransformerCfg(
-                    prim_path="/World/envs/env_.*/Robot/left_hand_palm_link",
+                    prim_path="/World/envs/env_.*/Robot/left_dex1_base_link",
                     target_frames=[
                         FrameTransformerCfg.FrameCfg(prim_path=target_obj_transform_prim_path),
                     ],
                 )
                 right_hand_frame_transformer_config = FrameTransformerCfg(
-                    prim_path="/World/envs/env_.*/Robot/right_hand_palm_link",
+                    prim_path="/World/envs/env_.*/Robot/right_dex1_base_link",
                     target_frames=[
                         FrameTransformerCfg.FrameCfg(prim_path=target_obj_transform_prim_path),
                     ],
@@ -1286,7 +1286,7 @@ class IsaacSim(BaseSimulator):
 
                 if which_hand == "right_hand":
                     front_hand_frame_transformer_config = FrameTransformerCfg(
-                        prim_path="/World/envs/env_.*/Robot/right_hand_palm_link",
+                        prim_path="/World/envs/env_.*/Robot/right_dex1_base_link",
                         target_frames=[
                             FrameTransformerCfg.FrameCfg(
                                 prim_path=front_object_transform_prim_path
@@ -1294,14 +1294,14 @@ class IsaacSim(BaseSimulator):
                         ],
                     )
                     hold_hand_frame_transformer_config = FrameTransformerCfg(
-                        prim_path="/World/envs/env_.*/Robot/right_hand_palm_link",
+                        prim_path="/World/envs/env_.*/Robot/right_dex1_base_link",
                         target_frames=[
                             FrameTransformerCfg.FrameCfg(prim_path=hold_object_transform_prim_path),
                         ],
                     )
                 elif which_hand == "left_hand":
                     front_hand_frame_transformer_config = FrameTransformerCfg(
-                        prim_path="/World/envs/env_.*/Robot/left_hand_palm_link",
+                        prim_path="/World/envs/env_.*/Robot/left_dex1_base_link",
                         target_frames=[
                             FrameTransformerCfg.FrameCfg(
                                 prim_path=front_object_transform_prim_path
@@ -1309,7 +1309,7 @@ class IsaacSim(BaseSimulator):
                         ],
                     )
                     hold_hand_frame_transformer_config = FrameTransformerCfg(
-                        prim_path="/World/envs/env_.*/Robot/left_hand_palm_link",
+                        prim_path="/World/envs/env_.*/Robot/left_dex1_base_link",
                         target_frames=[
                             FrameTransformerCfg.FrameCfg(prim_path=hold_object_transform_prim_path),
                         ],
