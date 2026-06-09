@@ -260,22 +260,7 @@ class DoorPregrasp(
 
     @StagedTaskBase.effective_in_stage([STAGE_WALK_TO_DOOR, STAGE_PREGRASP, STAGE_THROUGH])
     def _reward_pregrasp_finger_dof_pos_l1(self):
-        left_diff = self.simulator.dof_pos[:, self._left_hand_dof_idx] - self._left_p0
-        right_diff = self.simulator.dof_pos[:, self._right_hand_dof_idx] - self._right_p0
-        left_vel = self.simulator.dof_vel[:, self._left_hand_dof_idx] * torch.sign(left_diff)
-        right_vel = self.simulator.dof_vel[:, self._right_hand_dof_idx] * torch.sign(right_diff)
-
-        pos_diff = torch.where(self.door_open_lr[:, None] < 0, left_diff, right_diff)
-        pos_track = self._tracking_reward_util(
-            pos_diff, std=0.3, target=0.0, scale=1.0, offset=0.0
-        ).mean(dim=-1)
-
-        vel_diff = torch.where(self.door_open_lr[:, None] < 0, left_vel, right_vel)
-        vel_track = self._tracking_reward_util(
-            vel_diff, std=0.2, target=0.6, scale=1.0, offset=0.0
-        ).mean(dim=-1)
-
-        return (pos_track + vel_track).clamp(max=1.0)
+        return torch.zeros(self.num_envs, device=self.device)
 
     @StagedTaskBase.effective_in_stage([STAGE_PREGRASP, STAGE_GRASP, STAGE_OPEN, STAGE_SWING])
     def _reward_penalty_unused_dof_deviation_l1(self):
@@ -293,20 +278,19 @@ class DoorPregrasp(
     @StagedTaskBase.effective_in_stage([STAGE_PREGRASP, STAGE_GRASP, STAGE_OPEN, STAGE_SWING])
     def _reward_hand_handle_orientation(self):
         mask = (self.door_open_lr < 0)[:, None]
-        rot_90 = quat_from_euler_xyz(
-            torch.full((self.num_envs,), torch.pi / 2.0, device=self.device),
+        # Top-down grasp: pitch the gripper -90° about Y so it faces downward onto the handle.
+        # Both hands share the same target rotation since both approach from above.
+        # NOTE: verify this sign after inspecting the Dex1 wrist frame in Isaac Sim — if the
+        # orientation reward converges to a tilted pose, flip to +pi/2.
+        rot_down = quat_from_euler_xyz(
             torch.zeros(self.num_envs, device=self.device),
-            torch.zeros(self.num_envs, device=self.device),
-        )
-        rot_neg_90 = quat_from_euler_xyz(
             torch.full((self.num_envs,), -torch.pi / 2.0, device=self.device),
-            torch.zeros(self.num_envs, device=self.device),
             torch.zeros(self.num_envs, device=self.device),
         )
         left_target_rot = self.simulator.left_hand_transform_rot[:, 0, :]
         right_target_rot = self.simulator.right_hand_transform_rot[:, 0, :]
         current_hand_rot = torch.where(mask, left_target_rot, right_target_rot)
-        relative_rot = quat_mul(current_hand_rot, torch.where(mask, rot_90, rot_neg_90))
+        relative_rot = quat_mul(current_hand_rot, rot_down)
         return self._tracking_reward_util(
             wrap_to_pi(axis_angle_from_quat(relative_rot).norm(dim=-1)),
             std=0.6,
@@ -384,22 +368,7 @@ class DoorPregrasp(
 
     @StagedTaskBase.effective_in_stage([STAGE_GRASP, STAGE_OPEN, STAGE_SWING])
     def _reward_grasp_finger_dof_pos_l1(self):
-        left_diff = self.simulator.dof_pos[:, self._left_hand_dof_idx] - self._left_p1
-        right_diff = self.simulator.dof_pos[:, self._right_hand_dof_idx] - self._right_p1
-        left_vel = self.simulator.dof_vel[:, self._left_hand_dof_idx] * torch.sign(left_diff)
-        right_vel = self.simulator.dof_vel[:, self._right_hand_dof_idx] * torch.sign(right_diff)
-
-        pos_diff = torch.where(self.door_open_lr[:, None] < 0, left_diff, right_diff)
-        pos_track = self._tracking_reward_util(
-            pos_diff, std=0.3, target=0.0, scale=1.0, offset=0.0
-        ).mean(dim=-1)
-
-        vel_diff = torch.where(self.door_open_lr[:, None] < 0, left_vel, right_vel)
-        vel_track = self._tracking_reward_util(
-            vel_diff, std=0.2, target=0.6, scale=1.0, offset=0.0
-        ).mean(dim=-1)
-
-        return (pos_track + vel_track).clamp(max=1.0)
+        return torch.zeros(self.num_envs, device=self.device)
 
     @StagedTaskBase.effective_in_stage([STAGE_GRASP, STAGE_OPEN, STAGE_SWING])
     def _reward_grasp_target_distance(self):
@@ -909,7 +878,7 @@ class DoorPregrasp(
             ].norm(dim=-1)
             > 1
         ).sum(dim=-1)
-        left_hand_grasped = left_hand_handle_contact_count >= 4
+        left_hand_grasped = left_hand_handle_contact_count >= 1
 
         right_hand_handle_contact_count = (
             self.simulator.object_to_hand_contact_forces[
@@ -917,7 +886,7 @@ class DoorPregrasp(
             ].norm(dim=-1)
             > 1
         ).sum(dim=-1)
-        right_hand_grasped = right_hand_handle_contact_count >= 4
+        right_hand_grasped = right_hand_handle_contact_count >= 1
         return torch.where(self.door_open_lr < 0, left_hand_grasped, right_hand_grasped)
 
     def _stage_2_to_3_advance_condition(self):
