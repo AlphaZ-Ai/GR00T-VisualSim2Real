@@ -84,6 +84,7 @@ robot:
   thumb_tip_link: 'right_hand_index_1_link'
   left_hand_palm_link: 'left_hand_palm_link'
   right_hand_palm_link: 'right_hand_palm_link'
+  num_hand_body_links: 16
   finger_tip_links: ['right_hand_thumb_2_link', 'right_hand_index_1_link', 'right_hand_middle_1_link']
   
   finger_dof_configuration_overcurling: [-1.0472, -1.7453, 1.5708, 1.7453, 1.5708, 1.7453]

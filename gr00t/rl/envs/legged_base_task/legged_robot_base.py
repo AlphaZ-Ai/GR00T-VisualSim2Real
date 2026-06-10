@@ -540,10 +540,6 @@ class LeggedRobotBase(BaseTask):
             if self.debug_viz:
                 self._draw_debug_vis()
 
-            root_pos = self.simulator._rigid_body_pos[:, 0]
-            eye = root_pos + torch.tensor([2, 2, 1], device=self.device)
-
-            self.simulator.eval_camera.set_world_poses_from_view(eye, root_pos)
             rgb_viewer = self.simulator.eval_camera.data.output["rgb"].clone()
 
             if "writers_rendering_results" not in self.__dict__:

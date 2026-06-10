@@ -878,7 +878,7 @@ class DoorPregrasp(
             ].norm(dim=-1)
             > 1
         ).sum(dim=-1)
-        left_hand_grasped = left_hand_handle_contact_count >= 1
+        left_hand_grasped = left_hand_handle_contact_count >= 2
 
         right_hand_handle_contact_count = (
             self.simulator.object_to_hand_contact_forces[
@@ -886,7 +886,7 @@ class DoorPregrasp(
             ].norm(dim=-1)
             > 1
         ).sum(dim=-1)
-        right_hand_grasped = right_hand_handle_contact_count >= 1
+        right_hand_grasped = right_hand_handle_contact_count >= 2
         return torch.where(self.door_open_lr < 0, left_hand_grasped, right_hand_grasped)
 
     def _stage_2_to_3_advance_condition(self):

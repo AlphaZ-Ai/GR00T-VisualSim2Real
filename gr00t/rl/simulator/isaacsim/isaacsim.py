@@ -998,20 +998,26 @@ class IsaacSim(BaseSimulator):
         logger.info(f"camera_types: {camera_types}")
 
         if getattr(self.simulator_config, "render_results", False):
+            eval_cam_cfg = getattr(self.simulator_config, "eval_camera", {})
+            eval_cam_width = eval_cam_cfg.get("width", 1280) if hasattr(eval_cam_cfg, "get") else 1280
+            eval_cam_height = eval_cam_cfg.get("height", 720) if hasattr(eval_cam_cfg, "get") else 720
+            # Camera parented to robot pelvis so it follows without needing dynamic pose updates.
+            # Offset: 1.5m behind (-X) and 1.5m above (+Z) the pelvis = 45-degree downward angle.
+            # Rotation: 45-deg pitch down around Y-axis in world convention (WXYZ = 0.924,0,0.383,0).
             eval_camera_config = TiledCameraCfg(
-                prim_path="/World/envs/env_.*/eval_camera",
+                prim_path="/World/envs/env_.*/Robot/pelvis/eval_camera",
                 offset=TiledCameraCfg.OffsetCfg(
-                    pos=(0, 0, 0), rot=(1, 0, 0, 0), convention="world"
+                    pos=(-1.5, 0, 1.5), rot=(0.924, 0, 0.383, 0), convention="world"
                 ),
                 data_types=["rgb"],
                 spawn=sim_utils.PinholeCameraCfg(
-                    focal_length=5.0,
-                    focus_distance=50.0,
-                    horizontal_aperture=5,
+                    focal_length=24.0,
+                    focus_distance=4.0,
+                    horizontal_aperture=20.955,
                     clipping_range=(0.1, 20.0),
                 ),
-                width=256,
-                height=256,
+                width=eval_cam_width,
+                height=eval_cam_height,
             )
             self.eval_camera = TiledCamera(eval_camera_config)
             self.scene.sensors["eval_camera"] = self.eval_camera
@@ -2160,8 +2166,6 @@ class IsaacSim(BaseSimulator):
         # simulate
         self.sim.step(render=False)
         # render between steps only if the GUI or an RTX sensor needs it
-        # note: we assume the render interval to be the shortest accepted rendering interval.
-        #    If a camera needs rendering at a faster frequency, this will lead to unexpected behavior.
         if self._sim_step_counter % self.simulator_config.sim.render_interval == 0 and is_rendering:
             self.sim.render()
         # update buffers at sim

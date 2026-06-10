@@ -60,8 +60,9 @@ robot:
   ]
 
   thumb_tip_link: 'right_dex1_finger_link_1'
-  right_hand_palm_link: 'right_dex1_base_link'
-  left_hand_palm_link: 'left_dex1_base_link'
+  right_hand_palm_link: 'right_wrist_yaw_link'
+  left_hand_palm_link: 'left_wrist_yaw_link'
+  num_hand_body_links: 4
   finger_tip_links: ['right_dex1_finger_link_1', 'right_dex1_finger_link_2']
 
   finger_dof_configuration_overcurling: []

@@ -185,7 +185,7 @@ def main(override_config: OmegaConf):
         args_cli.headless = config.headless
 
         # Copy headless rendering kit file if needed
-        dest_path = Path(isaaclab.__file__).resolve().parent.parent.parent.parent / "apps"
+        dest_path = Path(isaaclab.__file__).resolve().parent / "apps"
         current_file_dir_path = Path(os.path.dirname(os.path.realpath(__file__)))
         if args_cli.enable_cameras and args_cli.headless:
             source_file = current_file_dir_path / "apps/phc.isaaclab.python.headless.rendering.kit"
