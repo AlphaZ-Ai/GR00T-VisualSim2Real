@@ -1001,13 +1001,18 @@ class IsaacSim(BaseSimulator):
             eval_cam_cfg = getattr(self.simulator_config, "eval_camera", {})
             eval_cam_width = eval_cam_cfg.get("width", 1280) if hasattr(eval_cam_cfg, "get") else 1280
             eval_cam_height = eval_cam_cfg.get("height", 720) if hasattr(eval_cam_cfg, "get") else 720
-            # Camera parented to robot pelvis so it follows without needing dynamic pose updates.
-            # Offset: 1.5m behind (-X) and 1.5m above (+Z) the pelvis = 45-degree downward angle.
-            # Rotation: 45-deg pitch down around Y-axis in world convention (WXYZ = 0.924,0,0.383,0).
+            # Camera parented to robot pelvis. Side selectable via EVAL_CAM_SIDE env var (default
+            # "left"): LEFT = 2m to the robot's left (+Y), RIGHT = mirror (-Y). 0.6m above the pelvis,
+            # looking back at the front/upper body (where the hands grasp the handle), angled down.
+            # world convention: camera +X=forward, +Z=up, +Y=left; rot is the computed look-at quat.
+            if os.environ.get("EVAL_CAM_SIDE", "left").lower() == "right":
+                _eval_cam_pos, _eval_cam_rot = (0.0, -2.0, 0.6), (0.7724, -0.031, 0.0378, 0.6332)
+            else:
+                _eval_cam_pos, _eval_cam_rot = (0.0, 2.0, 0.6), (0.7724, 0.031, 0.0378, -0.6332)
             eval_camera_config = TiledCameraCfg(
                 prim_path="/World/envs/env_.*/Robot/pelvis/eval_camera",
                 offset=TiledCameraCfg.OffsetCfg(
-                    pos=(-1.5, 0, 1.5), rot=(0.924, 0, 0.383, 0), convention="world"
+                    pos=_eval_cam_pos, rot=_eval_cam_rot, convention="world"
                 ),
                 data_types=["rgb"],
                 spawn=sim_utils.PinholeCameraCfg(

@@ -63,7 +63,7 @@ env:
     pregrasp_target_vel: 0.3
     target_root_vel: 0.3
 
-    max_stage_time: [250, 100, 100, 100, 100, 200]
+    max_stage_time: [250, 150, 100, 100, 150, 200]
     award_remaining_time_on_advance: True
     accumulate_stage_reward: False
     reset_on_complete: True
@@ -87,7 +87,7 @@ env:
       s: 0.0
 
     enable_staged_reset: True
-    staged_reset_ratios: [0.5, 0.1, 0.1, 0.1, 0.1, 0.1]
+    staged_reset_ratios: [0.4, 0.1, 0.1, 0.1, 0.2, 0.1]
     staged_reset_max_samples_per_stage: 200
 
     target_root_pos: [2.0, 0.0, 0.72]
