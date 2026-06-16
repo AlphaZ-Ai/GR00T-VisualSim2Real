@@ -472,7 +472,10 @@ def spawn_door(
     hinge_joint.CreateBody1Rel().SetTargets([panel_prim_path])
     hinge_joint.GetAxisAttr().Set("Z")
     hinge_joint.CreateLocalPos0Attr().Set(Gf.Vec3f(0.02, -half_door_width * door_open_lr, 0))
-    if door_open_lr == 1:
+    # door_open_io: "in"(=1, pull) swings the panel TOWARD the robot, "out"(=-1, push) away. The
+    # 180-deg-about-X local rot reverses the hinge swing direction; XOR it with the lr flip so pull
+    # doors open toward the robot. Joint convention stays positive=open for both (limits [0,150]).
+    if (door_open_lr == 1) != (door_open_io == 1):
         hinge_joint.CreateLocalRot0Attr().Set(Gf.Quatf(real=0.0, imaginary=(Gf.Vec3f(1, 0, 0))))
     hinge_joint.GetLowerLimitAttr().Set(0.0)
     hinge_joint.GetUpperLimitAttr().Set(150)

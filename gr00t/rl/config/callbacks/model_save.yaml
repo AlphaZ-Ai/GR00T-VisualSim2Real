@@ -1,4 +1,4 @@
 model_save:
   _target_: gr00t.rl.trl.callbacks.model_save_callback.ModelSaveCallback
   save_dir: ${experiment_dir}
-  save_frequency: 1000
+  save_frequency: 500

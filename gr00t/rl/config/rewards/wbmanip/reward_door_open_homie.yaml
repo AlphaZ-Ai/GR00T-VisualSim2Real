@@ -22,7 +22,7 @@ rewards:
       # walk to door
       walk_to_door: 5.0
       penalty_upper_body_non_finger_deviation_l1: -1.0
-      penalty_face_door: -4.0   # keep body facing forward through the doorway (was -1.0; too weak vs target_root_distance +12 -> robot turned sideways during the through)
+      penalty_face_door: -2.0 
 
       # pregrasp
       hand_handle_orientation: 3.0
@@ -46,6 +46,10 @@ rewards:
       target_root_distance: 12.0
       penalty_standing_still: -1.0
 
+      # through
+      face_forward: 3.0
+      through_arm_default: 3.0 
+
       # always on
       stage: 1.0
       complete: 4.0
@@ -53,7 +57,7 @@ rewards:
       penalty_humanly_dof_limit: -1.0
       penalty_door_frame_contact: -0.1
       penalty_door_panel_contact: -0.1
-      penalty_disturb_lever: -3.0   # don't bump/rotate the lever before grasp (walk+pregrasp)
+      penalty_disturb_lever: -3.0
       # penalty_homie_action_rate: -1.0
       penalty_homie_action_limit: -1.0
       penalty_undesired_contact: -0.2

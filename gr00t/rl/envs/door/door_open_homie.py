@@ -263,7 +263,7 @@ class DoorPregrasp(
 
     @StagedTaskBase.effective_in_stage([STAGE_WALK_TO_DOOR, STAGE_THROUGH])
     def _reward_penalty_upper_body_non_finger_deviation_l1(self):
-        """Maintain upper body pose during walking to the door"""
+        """Maintain upper body pose (resting "ready" pose) during walk-to-door and through"""
         return torch.abs(
             self.simulator.dof_pos[:, self._upper_non_finger_dof_idx]
             - self.resting_dof_pos[:, self._upper_non_finger_dof_idx]
@@ -566,10 +566,6 @@ class DoorPregrasp(
 
     @StagedTaskBase.effective_in_stage([STAGE_WALK_TO_DOOR, STAGE_PREGRASP])
     def _reward_penalty_disturb_lever(self):
-        # Penalize rotating the lever (handle joint, ~0 at rest) before the grasp. The arm should
-        # reach its pre-grasp pose ABOVE the lever without bumping it -- this is the "get above the
-        # lever without hitting it" signal, so the policy learns a clean top-down approach instead
-        # of clipping the lever on the way up.
         return self.simulator.scene.articulations["door"].data.joint_pos[:, 1].abs()
 
     @StagedTaskBase.effective_in_stage([STAGE_OPEN, STAGE_SWING])
@@ -606,6 +602,25 @@ class DoorPregrasp(
         reward = (root_vel_reward + root_pos_reward).clamp(max=1.0)
         reward[self.stage_buf == DoorPregrasp.STAGE_SWING] *= 0.8
         return reward
+
+    @StagedTaskBase.effective_in_stage([STAGE_THROUGH])
+    def _reward_face_forward(self):
+        angle = wrap_to_pi(
+            axis_angle_from_quat(xyzw_to_wxyz(self.relative_door_rot_buf)).norm(dim=-1)
+        )
+        return self._tracking_reward_util(angle, std=0.6, target=0.0, scale=1.0, offset=0.0)
+
+    @StagedTaskBase.effective_in_stage([STAGE_THROUGH])
+    def _reward_through_arm_default(self):
+        # In the final (through) stage, hold BOTH arms in the resting "ready" pose the robot
+        # starts in (the bent shoulder/elbow + rotated-wrist pose stored in resting_dof_pos) so it
+        # walks through with the same tucked arms instead of flailing them. Targets resting_dof_pos
+        # (the start pose the user wants), NOT the URDF-neutral default_dof_pos.
+        arm_idx = torch.cat([self._left_arm_dof_idx, self._right_arm_dof_idx])
+        dev = (
+            self.simulator.dof_pos[:, arm_idx] - self.resting_dof_pos[:, arm_idx]
+        ).abs().mean(dim=-1)
+        return self._tracking_reward_util(dev, std=0.5, target=0.0, scale=1.0, offset=0.0)
 
     @override
     def _reward_limits_dof_pos(self):
@@ -649,7 +664,7 @@ class DoorPregrasp(
         return torch.sum(self.simulator.dof_vel[:, self._upper_non_finger_dof_idx] ** 2, dim=-1)
 
     @StagedTaskBase.effective_in_stage(
-        [STAGE_WALK_TO_DOOR, STAGE_PREGRASP, STAGE_GRASP, STAGE_SWING, STAGE_THROUGH]
+        [STAGE_WALK_TO_DOOR, STAGE_PREGRASP, STAGE_GRASP, STAGE_THROUGH]
     )
     def _reward_penalty_face_door(self):
         return wrap_to_pi(

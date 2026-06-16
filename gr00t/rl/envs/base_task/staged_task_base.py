@@ -253,6 +253,15 @@ class StagedTaskBase(LeggedRobotBase):
         self.log_dict["average_last_stage_goal_reached"] = (
             self.last_last_stage_completed_task_buf.float().mean()
         )
+        # Per-stage failure breakdown: of episodes that did NOT complete the task, which stage did
+        # they get stuck at (their furthest stage reached). fail_at_stage_s summed over all s equals
+        # the overall failure rate (== 1 - average_goal_reached); this shows WHERE failures
+        # concentrate so we know which stage to fix to push the success rate up.
+        failed = ~self.last_completed_task_buf
+        for s in range(self.num_stages):
+            self.log_dict[f"fail_at_stage_{s}"] = (
+                (self.last_max_stage_buf == s) & failed
+            ).float().mean()
         self._update_termination_curriculum()
 
     def _reward_stage(self):
