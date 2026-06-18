@@ -43,7 +43,7 @@ env:
       dof_pos: 0.1
       dof_vel: 0.15
       root_pos: 0.05
-      root_rot: 10 # degree, * 3.14 / 180
+      root_rot: 10
       root_vel: 0.01
       root_ang_vel: 0.01
 

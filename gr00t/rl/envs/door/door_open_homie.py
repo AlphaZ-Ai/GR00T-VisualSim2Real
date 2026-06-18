@@ -180,11 +180,6 @@ class DoorPregrasp(
         self._left_arm_dof_idx = torch.tensor(self.left_arm_dof_indices, device=self.device)
         self._right_arm_dof_idx = torch.tensor(self.right_arm_dof_indices, device=self.device)
 
-        # Palm-down (top-down) grasp orientation, direction-based. Calibrated IN-SIM: posed the full
-        # measured left-arm grasp config (shoulder/elbow/wrist) with the pelvis pinned upright and
-        # read the actual wrist_yaw_link world rotation -- the Dex1 palm faces along its local +x
-        # axis (local +x -> world-down ~ -0.89 at the grasp pose, both hands). The reward rewards that
-        # axis, transformed to world, pointing at world-down: direction-based, tolerates redundancy.
         self._palm_facing_axis = torch.tensor([1.0, 0.0, 0.0], device=self.device).repeat(
             self.num_envs, 1
         )
@@ -612,10 +607,6 @@ class DoorPregrasp(
 
     @StagedTaskBase.effective_in_stage([STAGE_THROUGH])
     def _reward_through_arm_default(self):
-        # In the final (through) stage, hold BOTH arms in the resting "ready" pose the robot
-        # starts in (the bent shoulder/elbow + rotated-wrist pose stored in resting_dof_pos) so it
-        # walks through with the same tucked arms instead of flailing them. Targets resting_dof_pos
-        # (the start pose the user wants), NOT the URDF-neutral default_dof_pos.
         arm_idx = torch.cat([self._left_arm_dof_idx, self._right_arm_dof_idx])
         dev = (
             self.simulator.dof_pos[:, arm_idx] - self.resting_dof_pos[:, arm_idx]

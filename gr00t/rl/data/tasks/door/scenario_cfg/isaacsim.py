@@ -23,8 +23,12 @@ door_spawner_cfg = DoorSpawnerCfg(
     activate_contact_sensors=True,
     build_latch=True,
     add_floors=True,
-    door_open_lr=["right"],
-    door_open_io=["out"],
+    door_open_lr=["left", "right"],  # UNIFIED: each env randomly gets a left or right door so one
+    door_open_io=["out"],            # policy trains BOTH hands (left-hand for right doors via the
+                                     # existing door_open_lr switches, right-hand for left doors).
+                                     # The working right-push bootstraps the right-hand pregrasp.
+                                     # io stays "out" (push) so all stages work; left-pull (io=in)
+                                     # is a follow-on once the right-hand manipulation is solid.
     door_handle_tblr=(0.95, 0.85, 0.08, 0.15),
     randomize_material=True,
     use_preloaded_materials=True,
