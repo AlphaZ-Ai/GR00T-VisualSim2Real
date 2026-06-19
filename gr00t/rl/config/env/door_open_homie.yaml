@@ -49,7 +49,7 @@ env:
 
     task:
       type: "manipulation"
-      name: "door"
+      name: "door_leftpull"
       objects: ["door"]
       target_obj: "door"
       thershold: 0.05

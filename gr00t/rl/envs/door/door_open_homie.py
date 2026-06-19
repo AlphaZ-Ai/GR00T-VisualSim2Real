@@ -331,7 +331,7 @@ class DoorPregrasp(
                 "right_shoulder_yaw_joint": -0.38, "right_elbow_joint": -0.05,
                 "right_wrist_roll_joint": 1.57, "right_wrist_pitch_joint": 0.39,
                 "right_wrist_yaw_joint": -1.57,
-            }
+            } #original shoulder pitch joint = 0.09
             for jname, val in arm_targets.items():
                 dof[:, names.index(jname)] = val
             self._calib_dof = dof

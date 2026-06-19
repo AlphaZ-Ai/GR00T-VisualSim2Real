@@ -18,7 +18,7 @@ experiment_name: ${exp_base}_${exp_var}
 experiment_dir: ${base_dir}/${project_name}/${experiment_name}-${timestamp}
 
 num_envs: 4096
-project_name: g1_open_door_homie
+project_name: g1_pull_open_door_left
 
 algo:
   config:
