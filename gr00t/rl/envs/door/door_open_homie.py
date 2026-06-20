@@ -603,6 +603,16 @@ class DoorPregrasp(
         reward[self.stage_buf == DoorPregrasp.STAGE_SWING] *= 0.8
         return reward
 
+    @StagedTaskBase.effective_in_stage([STAGE_SWING, STAGE_THROUGH])
+    def _reward_penalty_through_lateral_deviation(self):
+        # Keep the robot on the doorway center-line while swinging the door open and walking
+        # through. target_root_pos[1] is the center (env-relative y = 0); the 3D target_root_distance
+        # reward only weakly pulls laterally while the large x-gap dominates, so the right-push
+        # dynamics let the robot veer to the side. Penalize lateral (y) drift directly so it walks
+        # through the middle instead of off to one side.
+        lateral_y = self.simulator.robot_root_states[:, 1] - self.env_origins[:, 1]
+        return (lateral_y - self.target_root_pos[:, 1]).abs()
+
     @StagedTaskBase.effective_in_stage([STAGE_THROUGH])
     def _reward_face_forward(self):
         angle = wrap_to_pi(
@@ -659,6 +669,14 @@ class DoorPregrasp(
             "door_panel_unwanted_contact_sensor"
         ].data.net_forces_w
         return door_panel_unwanted_contact_forces.norm(dim=-1).sum(dim=-1)
+
+    def _reward_penalty_head_door_frame_contact(self):
+        # filtered contact forces between the head and the door frame
+        # force_matrix_w shape: (num_envs, num_sensor_bodies, num_filtered_bodies, 3)
+        head_door_frame_contact_forces = self.simulator.scene.sensors[
+            "head_door_frame_contact_sensor"
+        ].data.force_matrix_w
+        return head_door_frame_contact_forces.norm(dim=-1).sum(dim=(-1, -2))
 
     def _reward_penalty_upper_body_dof_vel(self):
         return torch.sum(self.simulator.dof_vel[:, self._upper_non_finger_dof_idx] ** 2, dim=-1)
@@ -871,6 +889,51 @@ class DoorPregrasp(
         # homie_command_norm = torch.norm(self.get_physical_homie_commands()[:, :3], dim=1)
         # self.reset_buf |= (homie_command_norm > self.termination_level) & is_grasping_or_opening
 
+    def init_eval_metrics_tracking(self, device):
+        # Flat per-episode goal-reached records collected over the whole eval run. (The base
+        # implementation only kept zero-tensors that were never populated, so eval success rate
+        # was always 0 / unserializable.) Keep "goal_reached_buffer" present for trainer compat.
+        self.eval_metrics = {
+            "episode_goal_reached": [],
+            "episode_last_stage_goal_reached": [],
+            "goal_reached_buffer": [],
+        }
+
+    def process_eval_episode_completions(
+        self, completed_env_ids, cur_reward_sum, cur_episode_length
+    ):
+        # Called when envs finish an episode (after env.step has updated the completion buffers).
+        # Record whether each just-finished episode reached the goal.
+        ids = completed_env_ids.reshape(-1)
+        self.eval_metrics["episode_goal_reached"].extend(
+            self.last_completed_task_buf[ids].detach().cpu().tolist()
+        )
+        self.eval_metrics["episode_last_stage_goal_reached"].extend(
+            self.last_last_stage_completed_task_buf[ids].detach().cpu().tolist()
+        )
+        self.eval_metrics["goal_reached_buffer"].append(
+            self.last_completed_task_buf[ids].detach().cpu()
+        )
+
+    def get_eval_metrics_summary(self):
+        gr = [bool(x) for x in self.eval_metrics.get("episode_goal_reached", [])]
+        lsg = [bool(x) for x in self.eval_metrics.get("episode_last_stage_goal_reached", [])]
+        n = len(gr)
+        rate = (sum(gr) / n) if n else 0.0
+        last_stage_rate = (sum(lsg) / len(lsg)) if lsg else 0.0
+        summary = {
+            "num_episodes": n,
+            "goal_reached_count": int(sum(gr)),
+            "goal_reached_rate": rate,
+            "last_stage_goal_reached_rate": last_stage_rate,
+            "episode_goal_reached": gr,
+        }
+        print(
+            f"[EVAL SUMMARY] goal_reached_rate={rate:.4f} "
+            f"({int(sum(gr))}/{n} episodes), last_stage_rate={last_stage_rate:.4f}"
+        )
+        return summary
+
     @property
     def ground_height(self):
         return 0.0
@@ -1032,6 +1095,17 @@ class DoorPregrasp(
         )
         simulator.scene.sensors["door_panel_unwanted_contact_sensor"] = ContactSensor(
             door_panel_unwanted_contact_sensor_config
+        )
+
+        # contact between the robot's head and the door frame (filtered contact)
+        head_door_frame_contact_sensor_config: ContactSensorCfg = ContactSensorCfg(
+            prim_path="/World/envs/env_.*/Robot/head_link",
+            filter_prim_paths_expr=[
+                f"/World/envs/env_.*/{simulator.task_config.target_obj}/root"
+            ],
+        )
+        simulator.scene.sensors["head_door_frame_contact_sensor"] = ContactSensor(
+            head_door_frame_contact_sensor_config
         )
 
         head_target_frame_transformer_config: FrameTransformerCfg = FrameTransformerCfg(

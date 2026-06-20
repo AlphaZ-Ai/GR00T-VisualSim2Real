@@ -3,6 +3,7 @@
 
 
 import asyncio
+import math
 import os
 from typing import Optional
 
@@ -161,6 +162,61 @@ def list_mdl_files_recursive(folder_path, mdl_files):
             # It's a file → check extension
             if entry.relative_path.endswith(".mdl"):
                 mdl_files.append(full_path)
+
+
+def _look_at_world_quat(eye, target, up=(0.0, 0.0, 1.0)):
+    """Compute a quaternion (w, x, y, z) that orients a camera at ``eye`` to look at
+    ``target`` in IsaacLab's "world" camera convention (local +X = forward/optical axis,
+    +Y = left, +Z = up). Pure-Python so it has no dependency on the np import scope.
+    """
+
+    def _sub(a, b):
+        return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+    def _cross(a, b):
+        return (
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        )
+
+    def _norm(a):
+        n = math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2])
+        return (a[0] / n, a[1] / n, a[2] / n)
+
+    fwd = _norm(_sub(target, eye))  # camera local +X
+    left = _norm(_cross(up, fwd))  # camera local +Y
+    new_up = _cross(fwd, left)  # camera local +Z
+    # Columns of R are the world-frame images of the local x/y/z axes.
+    r00, r01, r02 = fwd[0], left[0], new_up[0]
+    r10, r11, r12 = fwd[1], left[1], new_up[1]
+    r20, r21, r22 = fwd[2], left[2], new_up[2]
+    trace = r00 + r11 + r22
+    if trace > 0.0:
+        s = math.sqrt(trace + 1.0) * 2.0
+        w = 0.25 * s
+        x = (r21 - r12) / s
+        y = (r02 - r20) / s
+        z = (r10 - r01) / s
+    elif r00 > r11 and r00 > r22:
+        s = math.sqrt(1.0 + r00 - r11 - r22) * 2.0
+        w = (r21 - r12) / s
+        x = 0.25 * s
+        y = (r01 + r10) / s
+        z = (r02 + r20) / s
+    elif r11 > r22:
+        s = math.sqrt(1.0 + r11 - r00 - r22) * 2.0
+        w = (r02 - r20) / s
+        x = (r01 + r10) / s
+        y = 0.25 * s
+        z = (r12 + r21) / s
+    else:
+        s = math.sqrt(1.0 + r22 - r00 - r11) * 2.0
+        w = (r10 - r01) / s
+        x = (r02 + r20) / s
+        y = (r12 + r21) / s
+        z = 0.25 * s
+    return (w, x, y, z)
 
 
 class IsaacSim(BaseSimulator):
@@ -1001,16 +1057,55 @@ class IsaacSim(BaseSimulator):
             eval_cam_cfg = getattr(self.simulator_config, "eval_camera", {})
             eval_cam_width = eval_cam_cfg.get("width", 1280) if hasattr(eval_cam_cfg, "get") else 1280
             eval_cam_height = eval_cam_cfg.get("height", 720) if hasattr(eval_cam_cfg, "get") else 720
-            # Camera parented to robot pelvis. Side selectable via EVAL_CAM_SIDE env var (default
-            # "left"): LEFT = 2m to the robot's left (+Y), RIGHT = mirror (-Y). 0.6m above the pelvis,
-            # looking back at the front/upper body (where the hands grasp the handle), angled down.
+            # Camera modes via EVAL_CAM_SIDE env var (default "left"). All eye/target points are
+            # overridable via EVAL_CAM_EYE / EVAL_CAM_TARGET ("x,y,z" in metres).
+            #   "left"/"right": parented to the pelvis, FOLLOWS the robot from its left/right side.
+            #   "door"/"still"/"side": parented to the STATIC env root (does NOT move); side view at
+            #       ~the G1's height looking at the door (eye/target env-origin-relative).
+            #   "behind"/"back": parented to the STATIC env root (does NOT move); placed behind the
+            #       G1's start at ~G1 height, looking forward at the door (eye/target env-relative).
+            #   "follow"/"follow_behind"/"chase": parented to the pelvis, FOLLOWS the robot from
+            #       behind, looking forward (eye/target in the pelvis frame: +X fwd, +Y left, +Z up).
             # world convention: camera +X=forward, +Z=up, +Y=left; rot is the computed look-at quat.
-            if os.environ.get("EVAL_CAM_SIDE", "left").lower() == "right":
-                _eval_cam_pos, _eval_cam_rot = (0.0, -2.0, 0.6), (0.7724, -0.031, 0.0378, 0.6332)
+            _cam_mode = os.environ.get("EVAL_CAM_SIDE", "left").lower()
+
+            def _parse_xyz(env_name, default):
+                raw = os.environ.get(env_name)
+                if not raw:
+                    return default
+                return tuple(float(v) for v in raw.split(","))
+
+            if _cam_mode in ("door", "still", "fixed", "side"):
+                # Still side view at G1 height, looking straight at the door so the whole
+                # walk-to/grasp/push/swing sequence stays framed without the camera moving.
+                _eval_cam_eye = _parse_xyz("EVAL_CAM_EYE", (0.5, 3.2, 1.2))
+                _eval_cam_target = _parse_xyz("EVAL_CAM_TARGET", (0.5, 0.0, 1.1))
+                _eval_cam_pos = _eval_cam_eye
+                _eval_cam_rot = _look_at_world_quat(_eval_cam_eye, _eval_cam_target)
+                _eval_cam_prim_path = "/World/envs/env_.*/eval_camera"
+            elif _cam_mode in ("behind", "back", "behind_fixed"):
+                # Still camera behind the G1's start (-X), at G1 height, looking forward at the door.
+                _eval_cam_eye = _parse_xyz("EVAL_CAM_EYE", (-2.0, 0.0, 1.3))
+                _eval_cam_target = _parse_xyz("EVAL_CAM_TARGET", (0.8, 0.0, 1.1))
+                _eval_cam_pos = _eval_cam_eye
+                _eval_cam_rot = _look_at_world_quat(_eval_cam_eye, _eval_cam_target)
+                _eval_cam_prim_path = "/World/envs/env_.*/eval_camera"
+            elif _cam_mode in ("follow", "follow_behind", "chase"):
+                # Chase cam: rides behind/above the pelvis (pelvis-frame -X, +Z) and looks forward
+                # and slightly down, so it tracks the robot from behind toward the door.
+                _eval_cam_eye = _parse_xyz("EVAL_CAM_EYE", (-1.8, 0.0, 0.8))
+                _eval_cam_target = _parse_xyz("EVAL_CAM_TARGET", (1.0, 0.0, 0.2))
+                _eval_cam_pos = _eval_cam_eye
+                _eval_cam_rot = _look_at_world_quat(_eval_cam_eye, _eval_cam_target)
+                _eval_cam_prim_path = "/World/envs/env_.*/Robot/pelvis/eval_camera"
             else:
-                _eval_cam_pos, _eval_cam_rot = (0.0, 2.0, 0.6), (0.7724, 0.031, 0.0378, -0.6332)
+                if _cam_mode == "right":
+                    _eval_cam_pos, _eval_cam_rot = (0.0, -2.0, 0.6), (0.7724, -0.031, 0.0378, 0.6332)
+                else:
+                    _eval_cam_pos, _eval_cam_rot = (0.0, 2.0, 0.6), (0.7724, 0.031, 0.0378, -0.6332)
+                _eval_cam_prim_path = "/World/envs/env_.*/Robot/pelvis/eval_camera"
             eval_camera_config = TiledCameraCfg(
-                prim_path="/World/envs/env_.*/Robot/pelvis/eval_camera",
+                prim_path=_eval_cam_prim_path,
                 offset=TiledCameraCfg.OffsetCfg(
                     pos=_eval_cam_pos, rot=_eval_cam_rot, convention="world"
                 ),
