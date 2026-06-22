@@ -773,10 +773,13 @@ class DoorPregrasp(
         return self.simulator.get_task_dof_pos("door")[:, :2]
 
     def _get_obs_dof_pos_non_finger(self):
-        return self.simulator.dof_pos[:, :-14]
+        # Use the actual non-finger dof indices (Dex1 = 4 finger dofs -> 29 non-finger). The old
+        # hardcoded [:, :-14] assumed a 14-finger-dof hand (Dex3/inspire) and dropped 10 real
+        # non-finger dofs, mismatching the declared obs dim (29) for this robot.
+        return self.simulator.dof_pos[:, self.non_finger_dof_idx]
 
     def _get_obs_dof_vel_non_finger(self):
-        return self.simulator.dof_vel[:, :-14]
+        return self.simulator.dof_vel[:, self.non_finger_dof_idx]
 
     def _get_obs_target_obj_pos(self):
         return (

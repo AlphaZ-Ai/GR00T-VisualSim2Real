@@ -13,7 +13,10 @@ from pxr import Usd, UsdLux
 import numpy as np
 
 from gr00t.rl.isaac_utils.playground.utils.nucleus_utils import list_files_with_extension
-from gr00t.rl.isaac_utils.playground.scripts.domelight_randomization import DomeLightRandomization
+# NOTE: DomeLightRandomization is imported lazily inside spawn_random_dome_light (only when
+# dynamic_randomize_texture is enabled) because it imports omni.kit.scripting, which is not always
+# available (e.g. the OmniScriptingAPI is unregistered in some builds). Importing it at module level
+# breaks dome-light spawning entirely even when dynamic randomization is off.
 
 
 @clone
@@ -37,6 +40,10 @@ def spawn_random_dome_light(
     dome_light_prim.CreateIntensityAttr().Set(np.random.uniform(cfg.intensity_range[0], cfg.intensity_range[1]))
 
     if cfg.dynamic_randomize_texture:
+        from gr00t.rl.isaac_utils.playground.scripts.domelight_randomization import (
+            DomeLightRandomization,
+        )
+
         DomeLightRandomization.add_to_prim(prim.GetStage(), prim_path, cfg.dynamic_randomize_texture_interval, texture_file_list, cfg.intensity_range)
 
     return prim

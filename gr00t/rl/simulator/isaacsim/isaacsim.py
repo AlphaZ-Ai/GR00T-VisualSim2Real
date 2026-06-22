@@ -1554,19 +1554,18 @@ class IsaacSim(BaseSimulator):
         if self.config.simulator.config.get("randomize_dome_light", False):
             from gr00t.rl.isaac_utils.playground.env_rand.domelight import RandomDomeLightCfg
 
+            # Use LOCAL HDR sky textures: the NVIDIA S3 sky bucket is unreachable in this
+            # environment (omni.client.list fails -> empty list -> crash). dynamic_randomize_texture
+            # is disabled because its per-frame BehaviorScript needs OmniScriptingAPI, which is not
+            # registered here ("OmniScriptingSchemaOmniScriptingAPI is not correctly registered").
+            # Static per-spawn texture+intensity randomization still applies; per-reset intensity/yaw
+            # randomization is handled separately by the randomize_dome_light EventTerm.
+            _dome_tex_dir = os.path.abspath(
+                os.environ.get("DOME_LIGHT_TEXTURE_DIR", "data/dome_light_textures")
+            )
             dome_light_cfg = RandomDomeLightCfg(
-                texture_file_folders=[
-                    "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/NVIDIA/Assets/Skies/Indoor/",
-                    "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/NVIDIA/Assets/Skies/Clear/",
-                    "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/NVIDIA/Assets/Skies/Cloudy/",
-                    "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/NVIDIA/Assets/Skies/Night/",
-                    "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/NVIDIA/Assets/Skies/Studio/",
-                    "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/NVIDIA/Environments/2024_1/DomeLights/Clear/",
-                    "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/NVIDIA/Environments/2024_1/DomeLights/Cloudy/",
-                    "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/NVIDIA/Environments/2024_1/DomeLights/Indoor/",
-                ],
-                dynamic_randomize_texture=True,
-                dynamic_randomize_texture_interval=1.0,
+                texture_file_folders=[_dome_tex_dir],
+                dynamic_randomize_texture=False,
             )
             dome_light = dome_light_cfg.func("/World/DomeLight", dome_light_cfg)
             self.scene.extras["dome_light"] = dome_light
@@ -1731,11 +1730,17 @@ class IsaacSim(BaseSimulator):
             hasattr(self.simulator_config, "cameras")
             and self.simulator_config.cameras.enable_cameras
         ):
+            # camera_attached_link may be a nested USD prim path (e.g. "torso_link/d435_link",
+            # where d435_link is a fixed-joint visual Xform under the torso body). The ego_camera
+            # prim is spawned at that full path, but the body-id lookup needs the actual articulation
+            # body, which is the first path segment.
+            camera_body_link = self.simulator_config.cameras.camera_attached_link.split("/")[0]
             self.camera_body_id = self._robot.find_bodies(
-                self.simulator_config.cameras.camera_attached_link, preserve_order=True
+                camera_body_link, preserve_order=True
             )[0]
             logger.info(
-                f"Camera attached link: {self.simulator_config.cameras.camera_attached_link}, Camera body id: {self.camera_body_id}"
+                f"Camera attached link: {self.simulator_config.cameras.camera_attached_link}, "
+                f"body for pose tracking: {camera_body_link}, Camera body id: {self.camera_body_id}"
             )
 
         # import ipdb; ipdb.set_trace()

@@ -229,7 +229,7 @@ obs:
 
   obs_dims:
     - dof_pos: ${robot.dof_obs_size}
-    - hand_force: ${eval:'2 * 8 * 3'}
+    - hand_force: ${eval:'${robot.num_hand_body_links} * 3'}  # Dex1 = 4 bodies -> 12 (was hardcoded 48 for the Dex3 8-body hand, which mismatched our teacher's 190-dim obs)
     - relative_to_door: 9
     - dof_vel: ${robot.dof_obs_size}
     - actions: ${robot.actions_dim}

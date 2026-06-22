@@ -83,10 +83,14 @@ def parse_args():
 def main():
     args = parse_args()
 
-    # Launch Isaac Sim headless — must happen before any omni/isaaclab imports
-    from isaacsim import SimulationApp
+    # Launch Isaac Sim headless via isaaclab's AppLauncher (not a bare SimulationApp):
+    # the isaaclab extensions (e.g. isaaclab.sim) are only registered when the app is
+    # launched with the isaaclab experience, which AppLauncher does. A raw SimulationApp
+    # boots without them, causing `ModuleNotFoundError: No module named 'isaaclab.sim'`.
+    from isaaclab.app import AppLauncher
 
-    simulation_app = SimulationApp({"headless": True})
+    app_launcher = AppLauncher(headless=True)
+    simulation_app = app_launcher.app
 
     import numpy as np
     import omni.usd
@@ -141,7 +145,9 @@ def main():
                 args.preloaded_materials_num_color,
             )
 
-        prim_path = "/World/Door"
+        # Build the door at a TOP-LEVEL prim so it can be set as the stage default prim (USD requires
+        # the default prim to be a root prim). This makes the asset referenceable via UsdFileCfg.
+        prim_path = "/Door"
 
         metadata = _build_door(
             stage,
@@ -159,6 +165,13 @@ def main():
             _update_joint_transform=_update_joint_transform,
             _build_frame=build_frame,
         )
+
+        # Set the door root as the stage default prim so the asset can be referenced via
+        # sim_utils.UsdFileCfg (MultiAssetSpawnerCfg). Without a default prim the reference brings in
+        # nothing usable and contact-sensor activation fails with "no rigid bodies present".
+        door_root_prim = stage.GetPrimAtPath(prim_path)
+        if door_root_prim and door_root_prim.IsValid():
+            stage.SetDefaultPrim(door_root_prim)
 
         output_path = os.path.abspath(os.path.join(args.output_dir, f"door_{i:04d}.usd"))
         stage.Export(output_path)

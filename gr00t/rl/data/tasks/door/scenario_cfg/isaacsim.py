@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
+import glob
 import logging
+import os
 
 logging.getLogger("asyncio").setLevel(logging.WARNING)
 
@@ -34,9 +36,41 @@ door_spawner_cfg = DoorSpawnerCfg(
     dynamic_material_randomization_interval=1.0,
 )
 
+# Optional: use pre-generated door USDs (fast startup) instead of procedural spawn_door.
+# OPT-IN via DOOR_ASSET_DIR (default = procedural, which is the proven path).
+# CAVEAT: the offline generator (generate_door_assets.py) currently saves geometry + joints +
+# customData but NOT the rigid-body physics APIs that spawn_door applies at runtime, so loading the
+# generated USDs via UsdFileCfg fails contact-sensor activation ("no rigid bodies present"). To use
+# this path the generator must bake the rigid-body/articulation physics into the saved USD first.
+_door_asset_dir = os.environ.get("DOOR_ASSET_DIR")  # unset -> procedural
+_door_usd_files = sorted(glob.glob(os.path.join(_door_asset_dir, "*.usd"))) if _door_asset_dir else []
+
+if _door_usd_files:
+    _door_assets_cfg = [
+        sim_utils.UsdFileCfg(
+            usd_path=os.path.abspath(_p),
+            # NOTE: contact sensors are activated at the MultiAssetSpawnerCfg (env) level, not here —
+            # per-asset activation runs on the uncomposed /World/Template proto prim and fails to find
+            # the door's rigid bodies ("No contact sensors added ... no rigid bodies present").
+            articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+                enabled_self_collisions=True,
+                solver_position_iteration_count=4,
+                solver_velocity_iteration_count=4,
+                fix_root_link=True,
+            ),
+        )
+        for _p in _door_usd_files
+    ]
+    _random_choice = True  # each env draws a random door from the pre-generated pool
+    print(f"[door scenario] using {len(_door_usd_files)} pre-generated doors from {_door_asset_dir}")
+else:
+    _door_assets_cfg = [door_spawner_cfg] * 4096  # procedural fallback
+    _random_choice = False
+    print(f"[door scenario] no pre-generated doors in {_door_asset_dir}; using procedural spawn_door")
+
 multi_spawner_cfg = sim_utils.MultiAssetSpawnerCfg(
-    assets_cfg=[door_spawner_cfg] * 4096,
-    random_choice=False,
+    assets_cfg=_door_assets_cfg,
+    random_choice=_random_choice,
     activate_contact_sensors=True,
     rigid_props=sim_utils.RigidBodyPropertiesCfg(
         disable_gravity=False,
