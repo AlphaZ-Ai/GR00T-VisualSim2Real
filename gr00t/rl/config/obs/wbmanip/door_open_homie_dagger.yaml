@@ -229,7 +229,9 @@ obs:
 
   obs_dims:
     - dof_pos: ${robot.dof_obs_size}
-    - hand_force: ${eval:'2 * 8 * 3'}
+    # Match the teacher's hand_force dim (dex1 gripper: num_hand_body_links*3 = 12). The previous
+    # hardcoded 2*8*3=48 assumed an 8-link inspire hand and broke teacher_actor checkpoint loading.
+    - hand_force: ${eval:'${robot.num_hand_body_links} * 3'}
     - relative_to_door: 9
     - dof_vel: ${robot.dof_obs_size}
     - actions: ${robot.actions_dim}

@@ -773,10 +773,12 @@ class DoorPregrasp(
         return self.simulator.get_task_dof_pos("door")[:, :2]
 
     def _get_obs_dof_pos_non_finger(self):
-        return self.simulator.dof_pos[:, :-14]
+        # Exclude the actual finger DOFs (dex1 = 4) rather than a hardcoded last-14 (which assumed a
+        # 14-DOF inspire hand and dropped 10 real body DOFs for dex1, giving 19 instead of 29).
+        return self.simulator.dof_pos[:, self.non_finger_dof_idx]
 
     def _get_obs_dof_vel_non_finger(self):
-        return self.simulator.dof_vel[:, :-14]
+        return self.simulator.dof_vel[:, self.non_finger_dof_idx]
 
     def _get_obs_target_obj_pos(self):
         return (

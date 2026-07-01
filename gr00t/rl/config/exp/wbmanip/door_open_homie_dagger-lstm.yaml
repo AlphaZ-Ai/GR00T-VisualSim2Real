@@ -23,7 +23,7 @@ project_name: g1_open_door_homie
 enable_cameras: true
 headless: True
 
-teacher_actor_path: logs_rl/g1_open_door_homie/wbmanip/door_open_homie_pregrasp-20251014_204826/model_step_020450.pt
+teacher_actor_path: models/teacher_push_right_step008900.pt
 
 callbacks:
   model_save:
@@ -136,9 +136,14 @@ simulator:
         - rgb: true 
         - depth: false
       camera_resolutions: [216, 384]
-      camera_attached_link: "d435_link"
-      camera_pos_offset: [0.0, 0.035, 0.0]
-      camera_rot_offset: [0.99955, 0.0, 0.0299955, 0.0]
+      # d435_link is NOT a physics body in g1_33dof.usda (it's a massless fixed frame under
+      # torso_link), so it can't be used for find_bodies()/the camera prim path. We instead mount
+      # on the real body torso_link and bake the torso_link->d435_link transform
+      # (translate (0.0576,0.0175,0.4299), orient (0.91496,0,0.40355,0)) into the offset, composed
+      # with the original d435_link->camera offset, to reproduce the intended d435 viewpoint.
+      camera_attached_link: "torso_link"
+      camera_pos_offset: [0.0576235, 0.0525300, 0.4298700]
+      camera_rot_offset: [0.9024430, 0.0, 0.4308130, 0.0]
     scene:
       replicate_physics: False
       env_spacing: 100.0
