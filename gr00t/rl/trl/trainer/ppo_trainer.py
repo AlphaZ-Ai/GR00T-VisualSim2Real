@@ -2032,8 +2032,26 @@ class TRLPPOTrainer(PPOTrainer):
             batch_size, *self.camera_resolution
         )  # [B, H, W, C]
 
+        if not getattr(self, "_grpo_dbg_ranged", False):
+            self._grpo_dbg_ranged = True
+            print(
+                f"[VISION_OBS RANGE] min={rgb_images.min().item():.3f} "
+                f"max={rgb_images.max().item():.3f} mean={rgb_images.mean().item():.3f}"
+            )
+
+        # vision_obs is stored ImageNet-normalized ((x - mean) / std, values ~[-2.5, 2.5]);
+        # a raw *255 wraps mod 256 into psychedelic bands. Un-normalize back to [0, 1]
+        # first so the saved video shows the actual camera image the policy sees.
+        try:
+            cams = self.env.config.simulator.config.cameras
+            mean = torch.tensor(cams.image_mean, device=rgb_images.device, dtype=rgb_images.dtype)
+            std = torch.tensor(cams.image_std, device=rgb_images.device, dtype=rgb_images.dtype)
+            rgb_images = rgb_images * std + mean
+        except Exception:
+            pass
+
         # To uint8
-        rgb_images = (rgb_images * 255.0).to(torch.uint8)  # [B, H, W, C]
+        rgb_images = (rgb_images.clamp(0.0, 1.0) * 255.0).to(torch.uint8)  # [B, H, W, C]
 
         # Append to frames list
         for i in range(self.env.num_envs):
@@ -2070,14 +2088,23 @@ class TRLPPOTrainer(PPOTrainer):
             do_not_save = False
 
             cur_reward_sum = self.cur_reward_sum[env_idx].item()
-            # Get goal_reached status from environment metrics
-            if (
-                hasattr(self.env, "eval_metrics")
-                and "episode_goal_reached" in self.env.eval_metrics
-            ):
-                goal_reached = int(self.env.eval_metrics["episode_goal_reached"][env_idx].item())
-            else:
-                goal_reached = 1  # Default to saving if we can't determine status
+            # Get goal_reached status from environment metrics (used for the
+            # filename + optional success-only filtering). Be defensive: the
+            # per-env lookup can be out of range depending on how eval_metrics is
+            # populated, and we still want the video regardless.
+            goal_reached = 0
+            try:
+                gr = None
+                if getattr(self.env, "goal_reached_buf", None) is not None:
+                    gr = self.env.goal_reached_buf[env_idx]
+                elif (
+                    hasattr(self.env, "eval_metrics")
+                    and "episode_goal_reached" in self.env.eval_metrics
+                ):
+                    gr = self.env.eval_metrics["episode_goal_reached"][env_idx]
+                goal_reached = int(gr.item()) if hasattr(gr, "item") else int(bool(gr))
+            except (IndexError, KeyError, TypeError, RuntimeError, AttributeError):
+                goal_reached = 0
 
             if self.config.eval.save_goal_reached_only:
                 if goal_reached == 0:

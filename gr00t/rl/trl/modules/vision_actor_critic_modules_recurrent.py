@@ -232,6 +232,10 @@ class VisionRecurrentActor(VisionActor):
             episode_attnmask=episode_attnmask,
             **kwargs,
         )
+        # The obj-pred vision actor's forward returns {"actions", "obj_pred"}; the
+        # action-distribution (RL/GRPO) path only needs the action mean.
+        if isinstance(mean, dict):
+            mean = mean["actions"]
         if last_step_only:
             mean = mean[:, -1]
 

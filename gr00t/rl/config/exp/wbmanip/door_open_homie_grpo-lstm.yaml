@@ -1,0 +1,254 @@
+# @package _global_
+#
+# STAGE 3 -- GRPO sim-to-real fine-tuning of the vision (student) policy.
+# Paper: "Opening the Sim-to-Real Door for Humanoid Pixel-to-Action Policy
+# Transfer" (Xue et al., arXiv:2512.01061), Eq. (4)-(5).
+#
+# Pipeline: teacher (door_open_homie_lstm) -> student distillation
+# (door_open_homie_dagger-lstm) -> THIS GRPO fine-tuning stage.
+#
+# It reuses the distilled student's vision actor / cameras / observations, but:
+#   * trainer  -> trl_grpo_homie_api (critic-free, group-relative advantage)
+#   * algo     -> vf_coef: 0.0 (no critic), gamma: 1.0 (undiscounted trajectory
+#                 return R_i)
+#   * rewards  -> reward_door_open_homie: the DENSE reward the teacher/student were
+#                 trained on. Two sparse GRPO rewards were tried first and BOTH
+#                 collapsed the policy (20260702: penalty-dominated -> passivity,
+#                 32%->0%; 20260703: stage-dominated + cheap termination ->
+#                 rush-and-fall, 32%->0% in ~150 iters). Root cause: GRPO reshapes
+#                 the policy toward whatever reward it's given, and a sparse reward
+#                 different from the training objective has a degenerate optimum
+#                 that the group contrast farms. Using the SAME dense objective
+#                 makes GRPO REFINE rather than reshape; the KL anchor (below)
+#                 keeps it from drifting off the distilled 32% policy.
+#   * no teacher: this is RL self-improvement on the student's OWN observations.
+#
+# Launch (resume from the distilled dex1 student checkpoint):
+#   python gr00t/rl/train_agent_trl.py +exp=wbmanip/door_open_homie_grpo-lstm \
+#     ++checkpoint=$PWD/models/student_dex1_final_noopt.pt
+#
+# GROUP SEMANTICS (paper's "batch of G rollouts"):
+#   Each COMPLETED episode in a rollout batch is one tau_i; its full-episode
+#   return R_i is exact even when the episode spans window boundaries (the
+#   trainer carries the running sum). Steps of unfinished episodes get zero
+#   advantage. So the effective group size per update is roughly
+#       G ~= num_envs * num_steps_per_env / avg_episode_length
+#   (~32*128/500 ~= 8 with the numbers below). Larger num_steps_per_env means
+#   both a bigger group AND a larger fraction of steps carrying signal; it is
+#   bounded by RGB rollout memory (~ num_steps*num_envs*216*384*3*4 bytes).
+#   Watch the per-rollout "GRPO group" log line: if G or the signal fraction
+#   is chronically low, increase num_steps_per_env / num_envs.
+#
+# EXPLORATION (required, not optional): GRPO's gradient is zero when every
+# episode in the group has the same return. init_noise_std must be large
+# enough that groups mix successes and failures, but small enough to stay in
+# the distilled policy's stability envelope. MEASURED (student_dex1_final_noopt
+# env_state_dict): the student succeeds 32% (avg stage 2.59, ep len ~520) at
+# its distillation-time sigma=0.001; at sigma=0.05 the noise (incl. on the 3
+# homie locomotion commands) compounds over ~1000-step episodes -> falls
+# (ep len ~300), ~0% success, stage 0.45 -> no successes enter groups.
+# sigma=0.02 aims for rollout success near the 32% baseline so groups mix
+# outcomes. NOTE: the trainer resets the actor std to init_noise_std after
+# loading the checkpoint (the checkpoint carries std=0.001 and would silently
+# clobber this value); max_noise_std caps the entropy bonus from pushing the
+# std back out of the stable range (downward drift stays free).
+
+defaults:
+  - /algo: dagger_vision_distributed          # reuse the vision actor definition
+  - /env: door_open_homie
+  - /simulator: isaacsim
+  - /domain_rand: domain_rand_visual_ImageRand
+  - /rewards: wbmanip/reward_door_open_homie   # DENSE teacher reward (see note below)
+  - /robot: g1/g1_33dof
+  - /terrain: terrain_locomotion_plane
+  - /obs: wbmanip/door_open_homie_dagger       # vision obs (rgb_image + proprio)
+  - /opt: wandb
+  - override /trainer: trl_grpo_homie_api       # <-- GRPO trainer
+
+exp_base: ${hydra:runtime.choices.exp}
+exp_var: lstm
+experiment_name: ${exp_base}_${exp_var}
+experiment_dir: ${base_dir}/${project_name}/${experiment_name}-${timestamp}
+
+# Parallel envs contributing episodes to the group. Small so windowed RGB
+# rollouts fit in memory.
+num_envs: 32
+project_name: g1_open_door_homie
+
+enable_cameras: true
+headless: True
+
+# GRPO fine-tunes the student itself; no teacher network is loaded. Initialize
+# the student weights with the launch-time ++checkpoint=<distilled student .pt>.
+teacher_actor_path: null
+
+callbacks:
+  model_save:
+    save_frequency: 500
+
+algo:
+  config:
+    # --- GRPO / RL refinement settings (paper Eq. 4-5) ---
+    vf_coef: 0.0                 # critic-free: no value loss
+    entropy_coef: 0.005          # [VALIDATE] exploration during refinement
+    cliprange: 0.2               # clip epsilon in Eq. (5)
+    gamma: 1.0                   # UNDISCOUNTED trajectory return R_i (paper).
+                                 # Time-to-completion still shapes R_i via the
+                                 # per-step `complete` reward, not via discounting
+                                 # (0.99^1000 ~= 4e-5 would erase late successes).
+    teacher_rollout_ratio: 0.0   # no teacher rollouts
+    rollout_with_teacher_num_steps: 0
+    use_new_actor_critic: True
+    use_dagger: False            # GRPO is RL self-improvement, not distillation
+    dagger_bc_loss_coef: 0.0     # no behavior-cloning loss
+    network_load_dict: null      # no teacher weights to load
+
+    # Rollout window; episodes (~500-1000 steps) span several. See GROUP
+    # SEMANTICS above. Lowered 128 -> 96 after run 20260702 OOM'd at ~15h: the
+    # RGB rollout + padded-trajectory forward sat right at the 44GB ceiling and
+    # an occasional longer-trajectory padded batch tipped it over. 96 lowers the
+    # steady-state peak (and the padded max_traj_len) to leave headroom; still
+    # yields G~5-15 completed episodes/group.
+    num_steps_per_env: 96
+    empty_cache_every_n_ppo_epoch: 1   # release cached blocks each epoch (anti-OOM)
+
+    # Single epoch keeps r_{i,t} near 1 (on-policy ratios for Eq. 5).
+    num_learning_epochs: 1
+    num_mini_batches: 48
+    actor_learning_rate: 5e-5    # [VALIDATE] lightweight refinement -> small LR
+    critic_learning_rate: 5e-5   # unused (no critic); kept for config schema
+
+    # KL-to-distilled-student anchor (added 2026-07-03). GRPO fine-tuning can
+    # walk a 32% policy into a 0% one; this analytic-Gaussian KL penalty
+    # D_KL(pi_theta || pi_ref) keeps the policy near the frozen distilled student
+    # (pi_ref = the loaded checkpoint), added to the surrogate loss. The trainer
+    # builds pi_ref by freezing a copy of the actor after load_checkpoint and
+    # forwards it under no_grad in the loss (no rollout-time cost). Set to 0.0 to
+    # disable entirely (no reference network built -> no extra memory). Raised
+    # 0.01 -> 0.1 (strong anchor): after two collapses the priority is STABILITY
+    # near the distilled 32% policy over aggressive improvement. Effective mean-
+    # anchor stiffness = kl_ref_coef/(2*kl_ref_sigma^2) = 5. If the policy holds
+    # ~32% stably, LOWER this to let GRPO improve; if it still drifts down, RAISE.
+    kl_ref_coef: 0.1
+    # Reference width for the mean-anchor: KL ~= ||mu-mu_ref||^2 / (2*sigma^2).
+    # NOT the actor's ~1e-3 noise std (which would make the KL explode); a fixed
+    # 0.1 gives a smooth, well-scaled pull toward the distilled mean actions.
+    kl_ref_sigma: 0.1
+
+    # Small exploration noise for gentle RL refinement of the near-deterministic
+    # distilled policy -- see EXPLORATION note above.
+    # OPERATING POINT (measured 2026-07-02): the distilled policy's stability
+    # envelope is razor-thin -- sigma=0.05/0.02/0.01 all collapse success to
+    # ~0% (noise on 31 dims incl. the homie locomotion commands compounds over
+    # ~1000-step episodes -> falls), while sigma=0.001 (= distillation-time
+    # sampling) restores successes (rew_complete > 0, stage climbing toward
+    # the checkpoint's 2.59 / 32% baseline). Group variance for Eq. (4) comes
+    # from domain randomization + the success/failure mix, NOT injected noise:
+    # a success earns a large positive R (post-success `complete` steps) vs
+    # ~-2 for failures, giving huge within-group contrast. Do not raise sigma
+    # without re-measuring the envelope.
+    # PER-DIMENSION exploration noise (2026-07-03). GRPO's group contrast needs
+    # return variance from the policy's own action choices, but uniform noise on
+    # the ~1e-3 near-deterministic policy makes it FALL (noise on the locomotion
+    # command dims). So isolate: tiny noise on the locomotion commands (no gait
+    # perturbation -> no falls), real exploration on the manipulation dims.
+    init_noise_std: 0.02           # manipulation dims (upper body + fingers)
+    max_noise_std: 0.02            # must be >= init_noise_std or clamp erases it
+    noise_std_locomotion: 0.001    # first `homie_command_dim` dims (velocity cmds)
+    clamp_noise_std: True
+    freeze_noise_std: True         # keep the per-dim split fixed (no entropy drift)
+    init_at_random_ep_len: True   # parity with the dagger (distillation) config
+
+    homie_walk_model_path: ./models/model_walk.pt
+    homie_stand_model_path: ./models/model_stand.pt
+    homie_command_dim: 3
+    non_homie_command_actions_dim: 16
+    opt_homie: False
+
+    obj_pred_loss_coef: 0.0      # no auxiliary obj-pred loss during RL refinement
+
+    module_dim:
+      actor_obs: -1
+      vision_feature_dim: 128
+
+    # Vision actor -- MUST match the distilled student architecture so the
+    # student checkpoint loads. Copied from the dagger exp config; the
+    # teacher_actor block is intentionally omitted (GRPO has no teacher).
+    actor:
+      _target_: gr00t.rl.trl.modules.vision_actor_critic_modules_obj_pred_recurrent.VisionRecurrentActorObjPred
+      running_mean_std: True
+      rnn_type: "lstm"
+      rnn_hidden_dim: 256
+      rnn_num_layers: 2
+      backbone:
+        vision_module:
+          _target_: gr00t.rl.agents.modules.modules.BaseModule
+          process_output_dim: True
+          module_config_dict:
+            input_dim: [vision_obs]
+            output_dim: [vision_feature_dim]
+            layer_config:
+              type: ResNet
+              resnet_type: resnet18
+              pretrained: true
+              trainable: true   # jointly fine-tune the encoder during GRPO (per the paper)
+        mlp_module:
+          _target_: gr00t.rl.agents.modules.modules.BaseModule
+          process_output_dim: True
+          module_config_dict:
+            input_dim: [actor_obs]
+            output_dim:
+              - ${eval:'${algo.config.homie_command_dim} + ${algo.config.non_homie_command_actions_dim}'}
+            layer_config:
+              type: MLP
+              hidden_dims: [512, 256, 128]
+              activation: SiLU
+        obj_pred_mlp:
+          _target_: gr00t.rl.agents.modules.modules.BaseModule
+          process_output_dim: True
+          module_config_dict:
+            input_dim: [vision_feature_dim]
+            output_dim: [3]
+            layer_config:
+              type: MLP
+              hidden_dims: [256, 128, 64]
+              activation: SiLU
+
+simulator:
+  config:
+    randomize_dome_light: True
+    cameras:
+      enable_cameras: true
+      camera_types:
+        - rgb: true
+        - depth: false
+      camera_resolutions: [216, 384]
+      camera_attached_link: "torso_link"        # dex1: d435 baked onto torso_link
+      camera_pos_offset: [0.0576235, 0.0525300, 0.4298700]
+      camera_rot_offset: [0.9024430, 0.0, 0.4308130, 0.0]
+    scene:
+      replicate_physics: False
+      env_spacing: 100.0
+
+robot:
+  asset:
+    self_collisions: 0
+  finger_primitive:
+    primitive_action_map:
+      left:
+        pos_0: [-0.02, -0.02]
+        pos_1: [0.0245, 0.0245]
+      right:
+        pos_0: [-0.02, -0.02]
+        pos_1: [0.0245, 0.0245]
+  use_primitive: True
+  actions_dim: 31
+  check_action_dim: False
+  terminate_after_contacts_on: ["head", "knee", "wrist"]
+
+env:
+  config:
+    enable_staged_reset: False
+    reset_on_overtime: True
+    reset_on_complete: True
+    reset_on_complete_delay: 25.0

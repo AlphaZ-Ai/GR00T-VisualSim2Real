@@ -126,19 +126,41 @@ class PolicyAndValueWrapper(nn.Module):
             policy_log_probs = self.policy.get_actions_log_prob(
                 actions=actions[..., : self.policy.num_actions]
             )
+            # The vision recurrent actor emits per-step outputs in SPLIT-trajectory form
+            # [num_traj, max_len, ...]; the homie outputs and the stored rollout data are in
+            # UNSPLIT [num_envs, num_steps, ...] form (the state teacher actor already emits
+            # unsplit). Unsplit the vision policy's outputs so all combined/compared quantities
+            # share the same shape. No-op when already unsplit (teacher path) -> backward-compatible.
+            p_action_mean = self.policy.action_mean
+            p_action_std = self.policy.action_std
+            p_entropy = self.policy.entropy
+            if (
+                p_action_mean.shape[:2] != homie_mean.shape[:2]
+                and "masks" in kwargs
+                and "original_dones" in kwargs
+            ):
+                from gr00t.rl.trl.utils.rl import unsplit_trajectories
+
+                _m, _d = kwargs["masks"], kwargs["original_dones"]
+                p_action_mean = unsplit_trajectories(p_action_mean, _m, _d)
+                p_action_std = unsplit_trajectories(p_action_std, _m, _d)
+                policy_log_probs = unsplit_trajectories(policy_log_probs, _m, _d)
+                if isinstance(p_entropy, torch.Tensor) and p_entropy.dim() >= 2:
+                    p_entropy = unsplit_trajectories(p_entropy, _m, _d)
+
             walk_lp = self.homie_walk_model.get_actions_log_prob(actions=homie_actions)
             stand_lp = self.homie_stand_model.get_actions_log_prob(actions=homie_actions)
             homie_log_probs = torch.where(walk_mask.squeeze(-1), walk_lp, stand_lp)
             if getattr(self, "opt_homie", True):
                 logprobs = policy_log_probs + homie_log_probs
-                entropy = self.policy.entropy + homie_entropy
+                entropy = p_entropy + homie_entropy
             else:
                 logprobs = policy_log_probs
-                entropy = self.policy.entropy
+                entropy = p_entropy
             results = {
                 "logprobs": logprobs,
-                "action_mean": torch.cat([self.policy.action_mean, homie_mean], dim=-1),
-                "action_std": torch.cat([self.policy.action_std, homie_sigma], dim=-1),
+                "action_mean": torch.cat([p_action_mean, homie_mean], dim=-1),
+                "action_std": torch.cat([p_action_std, homie_sigma], dim=-1),
                 "entropy": entropy,
             }
         elif mode == "policy_distill":
@@ -195,7 +217,8 @@ class PolicyAndValueWrapper(nn.Module):
                 "prior_log_var": prior_log_var,
             }
         elif mode == "value":
-            results = self.value_model.evaluate(**kwargs)
+            # critic-free (e.g. GRPO fine-tuning): no value model -> no value forward
+            results = self.value_model.evaluate(**kwargs) if self.value_model is not None else None
         else:
             raise ValueError(f"Invalid mode: {mode}")
 
@@ -1408,17 +1431,23 @@ class TRLPPOTrainer(PPOTrainer):
             self._adjust_learning_rate_based_on_kl(kl_mean, optimizer)
 
         # Forward a DDP model twice will cause the error: "one of the variables needed for gradient computation has been modified by an inplace operation"
-        vpred = value_results.squeeze(-1)
-        vpredclipped = torch.clamp(
-            vpred,
-            mb_values - args.cliprange_value,
-            mb_values + args.cliprange_value,
-        )
-        vf_losses1 = torch.square(vpred - mb_return)
-        vf_losses2 = torch.square(vpredclipped - mb_return)
-        vf_loss_max = torch.max(vf_losses1, vf_losses2)
-        vf_loss = masked_mean(vf_loss_max, ~padding_mask_p1)
-        vf_clipfrac = masked_mean((vf_losses2 > vf_losses1).float(), ~padding_mask_p1)
+        if value_results is None:
+            # critic-free (GRPO): no value head -> no value loss (advantages come
+            # from the group-relative baseline, not a learned critic).
+            vf_loss = torch.zeros((), device=mb_return.device)
+            vf_clipfrac = torch.zeros((), device=mb_return.device)
+        else:
+            vpred = value_results.squeeze(-1)
+            vpredclipped = torch.clamp(
+                vpred,
+                mb_values - args.cliprange_value,
+                mb_values + args.cliprange_value,
+            )
+            vf_losses1 = torch.square(vpred - mb_return)
+            vf_losses2 = torch.square(vpredclipped - mb_return)
+            vf_loss_max = torch.max(vf_losses1, vf_losses2)
+            vf_loss = masked_mean(vf_loss_max, ~padding_mask_p1)
+            vf_clipfrac = masked_mean((vf_losses2 > vf_losses1).float(), ~padding_mask_p1)
         logprobs_diff = new_logprobs - mb_logprobs
         ratio = torch.exp(logprobs_diff)
         pg_losses = -mb_advantage * ratio
@@ -2184,8 +2213,19 @@ class TRLPPOTrainer(PPOTrainer):
             batch_size, *self.camera_resolution
         )  # [B, H, W, C]
 
+        # vision_obs is stored ImageNet-normalized ((x - mean) / std, values ~[-2.5, 2.5]);
+        # a raw *255 wraps mod 256 into psychedelic bands. Un-normalize back to [0, 1]
+        # first so the saved video shows the actual camera image the policy sees.
+        try:
+            cams = self.env.config.simulator.config.cameras
+            mean = torch.tensor(cams.image_mean, device=rgb_images.device, dtype=rgb_images.dtype)
+            std = torch.tensor(cams.image_std, device=rgb_images.device, dtype=rgb_images.dtype)
+            rgb_images = rgb_images * std + mean
+        except Exception:
+            pass
+
         # To uint8
-        rgb_images = (rgb_images * 255.0).to(torch.uint8)  # [B, H, W, C]
+        rgb_images = (rgb_images.clamp(0.0, 1.0) * 255.0).to(torch.uint8)  # [B, H, W, C]
 
         # Append to frames list
         for i in range(self.env.num_envs):

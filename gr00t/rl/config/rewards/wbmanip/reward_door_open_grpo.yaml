@@ -1,0 +1,85 @@
+# @package _global_
+#
+# GRPO sim-to-real fine-tuning reward (Xue et al., arXiv:2512.01061), REVISED
+# 2026-07-03 after a purely-sparse reward drove policy collapse.
+#
+# FAILURE ANALYSIS (run 20260702_195122): with binary success + dense motion
+# penalties and a 32%-success start, most episodes' return was dominated by the
+# NEGATIVE penalty sum. The group-relative advantage (Eq. 4) then favored
+# episodes with FEWER penalties = less motion -> the policy learned to move less
+# -> reached fewer stages -> even fewer successes. Success collapsed 32% -> 0%
+# over ~15h. rewbuffer max went negative (no successful episodes remained).
+#
+# FIX: make TASK PROGRESS the dominant source of group-return variance, not
+# penalties, so GRPO reinforces "get further / succeed" instead of "do nothing".
+#   * `stage` (dense, accumulates: pays ~scale*current_stage every step) is now
+#     the dominant term -> R_i is driven by how far the episode progressed, giving
+#     rich positive within-group contrast even before full success exists.
+#   * `complete` keeps the full-success bonus on top.
+#   * The motion penalties that caused the passivity collapse (penalty_dof_vel /
+#     penalty_dof_acc) are REMOVED; only a tiny action-rate term remains for
+#     smoothness. Behavior regularization is instead handled by the KL-to-
+#     distilled-student anchor in the GRPO trainer (kl_ref_coef), which keeps
+#     the policy near the smooth 32% student without a penalty that can dominate.
+#   * `termination` is moderate (not the teacher's -1000): falls are discouraged
+#     without a single fall swamping the progress contrast across a group.
+#
+# Still far sparser/lighter than the dense staged TEACHER reward
+# (reward_door_open_homie.yaml); this is refinement, not from-scratch training.
+
+rewards:
+  set_reward: Haoru
+  set_reward_date: 20250825
+  only_positive_rewards: False
+
+  reward_scales:
+      # --- DENSE task progress: the dominant term of the trajectory return ---
+      stage: 2.0                 # accumulates -> ~2*current_stage per step
+      complete: 4.0              # full task-success bonus (post-success steps)
+      success_save_time: 0.5     # faster completion -> higher return
+
+      # --- light smoothness only (NOT enough to dominate progress) ---
+      penalty_delta_action_rate: -0.002
+
+      # --- safety / limits: moderate, must not swamp the progress contrast ---
+      termination: -20.0         # discourage falls; << teacher's -1000
+      penalty_humanly_dof_limit: -0.5
+      penalty_dof_overspeed: -0.05
+
+  # DOF/torque soft limits (read by the env's get_dof_limits_properties); same as
+  # the teacher/student reward config. Curricula off for the lightweight RL phase.
+  reward_limit:
+    soft_dof_pos_limit: 0.95
+    soft_dof_vel_limit: 0.95
+    soft_torque_limit: 0.9
+    reward_limits_curriculum:
+      soft_dof_pos_curriculum: False
+      soft_dof_pos_initial_limit: 1.15
+      soft_dof_pos_max_limit: 1.15
+      soft_dof_pos_min_limit: 0.95
+      soft_dof_pos_curriculum_degree: 0.00000025
+      soft_dof_pos_curriculum_level_down_threshold: 40
+      soft_dof_pos_curriculum_level_up_threshold: 42
+      soft_dof_vel_curriculum: False
+      soft_dof_vel_initial_limit: 1.15
+      soft_dof_vel_max_limit: 1.25
+      soft_dof_vel_min_limit: 0.95
+      soft_dof_vel_curriculum_degree: 0.00000025
+      soft_dof_vel_curriculum_level_down_threshold: 40
+      soft_dof_vel_curriculum_level_up_threshold: 42
+      soft_torque_curriculum: False
+      soft_torque_initial_limit: 1.15
+      soft_torque_max_limit: 1.25
+      soft_torque_min_limit: 0.85
+      soft_torque_curriculum_degree: 0.00000025
+      soft_torque_curriculum_level_down_threshold: 40
+      soft_torque_curriculum_level_up_threshold: 42
+
+  # GRPO computes its own group-relative advantage; the penalty curriculum the
+  # teacher used is disabled here so the fine-tuning signal is stationary.
+  reward_penalty_curriculum: False
+  reward_initial_penalty_scale: 1.0
+  reward_min_penalty_scale: 1.0
+  reward_max_penalty_scale: 1.0
+  num_compute_average_epl: 10000
+  reward_penalty_reward_names: []

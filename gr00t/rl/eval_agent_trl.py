@@ -403,7 +403,10 @@ def main(override_config: OmegaConf):
         exit()
 
     # --- Run evaluation ---
-    trainer.eval()
+    # Pass a save dir so `save_videos` can write per-episode camera-view mp4s
+    # (the distill trainer's eval asserts save_dirpath is set when save_videos).
+    save_dirpath = str(checkpoint.parent / "renderings" / f"ckpt_{ckpt_num}")
+    trainer.eval(save_dirpath=save_dirpath)
     logger.info("Finished evaluation")
     os._exit(0)
 
