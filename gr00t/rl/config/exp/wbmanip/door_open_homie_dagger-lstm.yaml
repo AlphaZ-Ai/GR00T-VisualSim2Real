@@ -23,7 +23,7 @@ project_name: g1_open_door_homie
 enable_cameras: true
 headless: True
 
-teacher_actor_path: logs_rl/g1_open_door_homie/wbmanip/door_open_homie_pregrasp-20251014_204826/model_step_020450.pt
+teacher_actor_path: models/teacher_push_right_step008900.pt
 
 callbacks:
   model_save:
@@ -136,9 +136,18 @@ simulator:
         - rgb: true 
         - depth: false
       camera_resolutions: [216, 384]
-      camera_attached_link: "d435_link"
-      camera_pos_offset: [0.0, 0.035, 0.0]
-      camera_rot_offset: [0.99955, 0.0, 0.0299955, 0.0]
+      # Camera at the real Intel D435 RGB optical center. d435_link is a pure Xform child of
+      # torso_link (no physics body), so we anchor to the torso_link rigid body and bake in
+      # d435_link's CAD transform (g1_33dof.usda) composed with the link->RGB-sensor offset
+      # ([0,0.035,0], 3.438 deg). Net: 51.038 deg pitch. Verified against the known-good run.
+      camera_attached_link: torso_link
+      camera_pos_offset: [0.0576235, 0.0525300, 0.4298700]
+      camera_rot_offset: [0.902443, 0.0, 0.430808, 0.0]
+      camera_focal_length: 1.88
+      camera_focus_distance: 0.5
+      camera_horizontal_aperture: 2.6035
+      camera_vertical_aperture: 1.4621
+      camera_clipping_range: (0.1, 20.0)
     scene:
       replicate_physics: False
       env_spacing: 100.0
